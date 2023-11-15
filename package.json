@@ -1,0 +1,19 @@
+{
+  "name": "cdk-eda-webhook",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "bun build authorizer.ts --outdir ./.build --target node",
+    "deploy": "bun run build && cdk deploy",
+    "destroy": "cdk destroy",
+    "synth": "cdk synth --quiet"
+  },
+  "devDependencies": {
+    "@tsconfig/node20": "20.1.2",
+    "aws-cdk": "2.108.1",
+    "aws-cdk-lib": "2.108.1",
+    "bun-types": "1.0.11",
+    "constructs": "10.3.0",
+    "typescript": "5.2.2"
+  }
+}

@@ -1,0 +1,13 @@
+# OS files
+.DS_Store
+
+# Log files
+*.log
+
+# Dependencies
+node_modules
+
+# Generated files
+.build
+.cdk.staging
+cdk.out

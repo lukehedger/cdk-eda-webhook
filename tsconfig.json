@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["esnext"],
+    "module": "esnext",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "esnext",
+    "types": ["bun-types"]
+  },
+  "exclude": ["cdk.out", "node_modules"],
+  "extends": "@tsconfig/node20/tsconfig.json",
+  "include": ["authorizer.ts", "index.ts"]
+}
