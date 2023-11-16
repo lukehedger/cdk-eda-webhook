@@ -3,18 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "build": "bun build authorizer.ts --outdir ./.build --target node",
-    "deploy": "bun run build && cdk deploy",
-    "destroy": "cdk destroy",
-    "synth": "cdk synth --quiet"
+    "cdk": "cdk"
   },
   "devDependencies": {
     "@tsconfig/node20": "20.1.2",
     "@types/aws-lambda": "8.10.126",
+    "@types/node": "20.9.1",
     "aws-cdk": "2.108.1",
     "aws-cdk-lib": "2.108.1",
-    "bun-types": "1.0.11",
     "constructs": "10.3.0",
+    "esbuild": "0.19.5",
     "typescript": "5.2.2"
   }
 }

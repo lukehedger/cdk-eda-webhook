@@ -8,8 +8,7 @@
     "moduleResolution": "bundler",
     "skipLibCheck": true,
     "strict": true,
-    "target": "esnext",
-    "types": ["bun-types"]
+    "target": "esnext"
   },
   "exclude": ["cdk.out", "node_modules"],
   "extends": "@tsconfig/node20/tsconfig.json",
