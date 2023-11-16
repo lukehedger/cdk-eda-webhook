@@ -1,23 +1,22 @@
-import {
-  HttpApi,
-  HttpIntegrationSubtype,
-  HttpIntegrationType,
-  HttpMethod,
-  HttpRouteIntegration,
-  IntegrationCredentials,
-  MappingValue,
-  ParameterMapping,
-  PayloadFormatVersion,
-} from "@aws-cdk/aws-apigatewayv2-alpha";
-import {
-  HttpLambdaAuthorizer,
-  HttpLambdaResponseType,
-} from "@aws-cdk/aws-apigatewayv2-authorizers-alpha";
 import { App, Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import {
+  AuthorizationType,
+  AwsIntegration,
+  IdentitySource,
+  PassthroughBehavior,
+  RequestAuthorizer,
+  RestApi,
+} from "aws-cdk-lib/aws-apigateway";
 import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
 import { Rule } from "aws-cdk-lib/aws-events";
 import { SfnStateMachine } from "aws-cdk-lib/aws-events-targets";
-import { Role } from "aws-cdk-lib/aws-iam";
+import {
+  Effect,
+  PolicyDocument,
+  PolicyStatement,
+  Role,
+  ServicePrincipal,
+} from "aws-cdk-lib/aws-iam";
 import {
   Code,
   Function as LambdaFunction,
@@ -68,56 +67,70 @@ export class EdaWebhook extends Stack {
     // TODO: Pipe https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_pipes.CfnPipe.html
     new CfnPipe(this, "WebhookPipe", {});
 
-    new Queue(this, "WebhookQueueDLQ", {
+    const webhookQueue = new Queue(this, "WebhookQueue", {
       deadLetterQueue: {
         maxReceiveCount: 3,
         queue: new Queue(this, "WebhookQueueDLQ", {}),
       },
     });
 
-    const webhookApi = new HttpApi(this, "WebhookApi", {});
+    const webhookApiAuthorizerFunction = new LambdaFunction(
+      this,
+      "WebhookApiAuthorizerFunction",
+      {
+        code: Code.fromAsset(path.join(__dirname, "/.build")),
+        handler: "authorizer.handler",
+        runtime: Runtime.NODEJS_20_X,
+      }
+    );
 
-    // TODO: https://docs.aws.amazon.com/cdk/api/v2/docs/@aws-cdk_aws-apigatewayv2-alpha.HttpIntegration.html
-    // const webhookApiIntegration = new HttpRouteIntegration(
-    //   this,
-    //   "WebhookApiIntegration",
-    //   {
-    //     credentials: IntegrationCredentials.fromRole(
-    //       new Role(this, "WebhookApiRole", {
-    //         assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
-    //       })
-    //     ),
-    //     method: HttpMethod.POST,
-    //     payloadFormatVersion: PayloadFormatVersion.VERSION_1_0,
-    //     parameterMapping: ParameterMapping.fromObject({
-    //       QueueUrl: webhookQueue.queueUrl,
-    //       // TODO: Encoded payload $util.base64Encode()
-    //       MessageBody: MappingValue.requestBody("message"),
-    //     }),
-    //     subtype: HttpIntegrationSubtype.SQS_SEND_MESSAGE,
-    //     type: HttpIntegrationType.AWS_PROXY,
-    //   }
-    // );
+    const webhookApiAuthorizer = new RequestAuthorizer(
+      this,
+      "WebhookApiAuthorizer",
+      {
+        handler: webhookApiAuthorizerFunction,
+        identitySources: [IdentitySource.header("Authorization")],
+        resultsCacheTtl: Duration.minutes(60),
+      }
+    );
 
-    const webhookApiAuthorizer = new LambdaFunction(this, "MyFunction", {
-      code: Code.fromAsset(path.join(__dirname, "/.build")),
-      handler: "authorizer.handler",
-      runtime: Runtime.NODEJS_20_X,
+    const webhookApi = new RestApi(this, "WebhookApi", {
+      defaultMethodOptions: {
+        authorizer: webhookApiAuthorizer,
+        authorizationType: AuthorizationType.CUSTOM,
+      },
+      defaultIntegration: new AwsIntegration({
+        action: "SendMessage",
+        actionParameters: {
+          MessageBody: "hello world",
+          // TODO: This is not working https://github.com/aws/aws-cdk/issues/7010
+          QueueUrl: webhookQueue.queueUrl,
+        },
+        integrationHttpMethod: "POST",
+        options: {
+          credentialsRole: new Role(this, "WebhookApiRole", {
+            assumedBy: new ServicePrincipal("apigateway.amazonaws.com"),
+            inlinePolicies: {
+              sqsSendMessage: new PolicyDocument({
+                statements: [
+                  new PolicyStatement({
+                    actions: ["sqs:SendMessage"],
+                    resources: [webhookQueue.queueArn],
+                    effect: Effect.ALLOW,
+                  }),
+                ],
+              }),
+            },
+          }),
+          // TODO: respond 200 [accepted] https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigateway-readme.html#gateway-response
+          passthroughBehavior: PassthroughBehavior.NEVER,
+        },
+        region: "eu-central-1",
+        service: "sqs",
+      }),
     });
 
-    webhookApi.addRoutes({
-      authorizer: new HttpLambdaAuthorizer(
-        "WebhookApiAuthorizer",
-        webhookApiAuthorizer,
-        {
-          responseTypes: [HttpLambdaResponseType.SIMPLE],
-          resultsCacheTtl: Duration.minutes(60),
-        }
-      ),
-      integration: webhookApiIntegration,
-      methods: [HttpMethod.POST],
-      path: "/",
-    });
+    webhookApi.root.addMethod("POST");
   }
 }
 
