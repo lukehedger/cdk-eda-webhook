@@ -20,9 +20,16 @@ import {
 } from "aws-cdk-lib/aws-iam";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { CfnPipe } from "aws-cdk-lib/aws-pipes";
 import { Queue } from "aws-cdk-lib/aws-sqs";
-import { StateMachine } from "aws-cdk-lib/aws-stepfunctions";
+import {
+  DefinitionBody,
+  LogLevel,
+  Pass,
+  StateMachine,
+  StateMachineType,
+} from "aws-cdk-lib/aws-stepfunctions";
 
 export class EdaWebhook extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
@@ -45,21 +52,32 @@ export class EdaWebhook extends Stack {
     //   timeToLiveAttribute: "ttl",
     // });
 
-    // const eventLogStateMachine = new StateMachine(
-    //   this,
-    //   "EventLogStateMachine",
-    //   {}
-    // );
+    const eventLogStateMachine = new StateMachine(
+      this,
+      "EventLogStateMachine",
+      {
+        definitionBody: DefinitionBody.fromChainable(new Pass(this, "Pass")),
+        logs: {
+          destination: new LogGroup(this, "EventLogStateMachineLogs", {
+            logGroupName: "/aws/vendedlogs/states/event-log-statemachine-luke",
+            removalPolicy: RemovalPolicy.DESTROY,
+            retention: RetentionDays.ONE_DAY,
+          }),
+          includeExecutionData: true,
+          level: LogLevel.ALL,
+        },
+        stateMachineType: StateMachineType.EXPRESS,
+      }
+    );
 
-    // new Rule(this, "EventLogRule", {
-    //   targets: [new SfnStateMachine(eventLogStateMachine)],
-    // });
-
-    // const webhookStateMachine = new StateMachine(
-    //   this,
-    //   "WebhookStateMachine",
-    //   {}
-    // );
+    new Rule(this, "EventLogRule", {
+      eventPattern: {
+        detail: {
+          eventSource: ["aws:sqs"],
+        },
+      },
+      targets: [new SfnStateMachine(eventLogStateMachine)],
+    });
 
     const webhookQueue = new Queue(this, "WebhookQueue", {
       deadLetterQueue: {
@@ -68,10 +86,16 @@ export class EdaWebhook extends Stack {
       },
     });
 
+    // TODO: CloudEvents enrichment
+    // const webhookStateMachine = new StateMachine(
+    //   this,
+    //   "WebhookStateMachine",
+    //   {}
+    // );
+
     const defaultEventBusArn = `arn:aws:events:${this.region}:${this.account}:event-bus/default`;
 
     new CfnPipe(this, "WebhookPipe", {
-      source: webhookQueue.queueArn,
       roleArn: new Role(this, "WebhookPipeRole", {
         assumedBy: new ServicePrincipal("pipes.amazonaws.com"),
         inlinePolicies: {
@@ -99,6 +123,7 @@ export class EdaWebhook extends Stack {
           }),
         },
       }).roleArn,
+      source: webhookQueue.queueArn,
       target: defaultEventBusArn,
     });
 
