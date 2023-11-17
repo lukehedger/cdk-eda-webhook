@@ -1,10 +1,11 @@
 import { App, Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import {
-  AuthorizationType,
+  // AuthorizationType,
   AwsIntegration,
-  IdentitySource,
+  Model,
+  // IdentitySource,
   PassthroughBehavior,
-  RequestAuthorizer,
+  // RequestAuthorizer,
   RestApi,
 } from "aws-cdk-lib/aws-apigateway";
 import { AttributeType, BillingMode, Table } from "aws-cdk-lib/aws-dynamodb";
@@ -17,55 +18,48 @@ import {
   Role,
   ServicePrincipal,
 } from "aws-cdk-lib/aws-iam";
-import {
-  Code,
-  Function as LambdaFunction,
-  Runtime,
-} from "aws-cdk-lib/aws-lambda";
+import { Runtime } from "aws-cdk-lib/aws-lambda";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { CfnPipe } from "aws-cdk-lib/aws-pipes";
 import { Queue } from "aws-cdk-lib/aws-sqs";
 import { StateMachine } from "aws-cdk-lib/aws-stepfunctions";
-import path from "node:path";
 
 export class EdaWebhook extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    new Table(this, "EventLogTable", {
-      billingMode: BillingMode.PAY_PER_REQUEST,
-      contributorInsightsEnabled: true,
-      deletionProtection: true,
-      partitionKey: {
-        name: "id",
-        type: AttributeType.STRING,
-      },
-      removalPolicy: RemovalPolicy.RETAIN,
-      sortKey: {
-        name: "sortKey",
-        type: AttributeType.STRING,
-      },
-      tableName: "EventLog",
-      timeToLiveAttribute: "ttl",
-    });
+    // new Table(this, "EventLogTable", {
+    //   billingMode: BillingMode.PAY_PER_REQUEST,
+    //   contributorInsightsEnabled: true,
+    //   deletionProtection: true,
+    //   partitionKey: {
+    //     name: "id",
+    //     type: AttributeType.STRING,
+    //   },
+    //   removalPolicy: RemovalPolicy.RETAIN,
+    //   sortKey: {
+    //     name: "sortKey",
+    //     type: AttributeType.STRING,
+    //   },
+    //   tableName: "EventLog",
+    //   timeToLiveAttribute: "ttl",
+    // });
 
-    const eventLogStateMachine = new StateMachine(
-      this,
-      "EventLogStateMachine",
-      {}
-    );
+    // const eventLogStateMachine = new StateMachine(
+    //   this,
+    //   "EventLogStateMachine",
+    //   {}
+    // );
 
-    new Rule(this, "EventLogRule", {
-      targets: [new SfnStateMachine(eventLogStateMachine)],
-    });
+    // new Rule(this, "EventLogRule", {
+    //   targets: [new SfnStateMachine(eventLogStateMachine)],
+    // });
 
-    const webhookStateMachine = new StateMachine(
-      this,
-      "WebhookStateMachine",
-      {}
-    );
-
-    // TODO: Pipe https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_pipes.CfnPipe.html
-    new CfnPipe(this, "WebhookPipe", {});
+    // const webhookStateMachine = new StateMachine(
+    //   this,
+    //   "WebhookStateMachine",
+    //   {}
+    // );
 
     const webhookQueue = new Queue(this, "WebhookQueue", {
       deadLetterQueue: {
@@ -74,38 +68,70 @@ export class EdaWebhook extends Stack {
       },
     });
 
-    const webhookApiAuthorizerFunction = new LambdaFunction(
+    const defaultEventBusArn = `arn:aws:events:${this.region}:${this.account}:event-bus/default`;
+
+    new CfnPipe(this, "WebhookPipe", {
+      source: webhookQueue.queueArn,
+      roleArn: new Role(this, "WebhookPipeRole", {
+        assumedBy: new ServicePrincipal("pipes.amazonaws.com"),
+        inlinePolicies: {
+          eventBusPipeTagret: new PolicyDocument({
+            statements: [
+              new PolicyStatement({
+                actions: ["events:PutEvents"],
+                resources: [defaultEventBusArn],
+                effect: Effect.ALLOW,
+              }),
+            ],
+          }),
+          sqsPipeSource: new PolicyDocument({
+            statements: [
+              new PolicyStatement({
+                actions: [
+                  "sqs:ReceiveMessage",
+                  "sqs:DeleteMessage",
+                  "sqs:GetQueueAttributes",
+                ],
+                resources: [webhookQueue.queueArn],
+                effect: Effect.ALLOW,
+              }),
+            ],
+          }),
+        },
+      }).roleArn,
+      target: defaultEventBusArn,
+    });
+
+    const webhookApiAuthorizerFunction = new NodejsFunction(
       this,
       "WebhookApiAuthorizerFunction",
       {
-        code: Code.fromAsset(path.join(__dirname, "/.build")),
-        handler: "authorizer.handler",
+        entry: "./authorizer.ts",
         runtime: Runtime.NODEJS_20_X,
       }
     );
 
-    const webhookApiAuthorizer = new RequestAuthorizer(
-      this,
-      "WebhookApiAuthorizer",
-      {
-        handler: webhookApiAuthorizerFunction,
-        identitySources: [IdentitySource.header("Authorization")],
-        resultsCacheTtl: Duration.minutes(60),
-      }
-    );
+    // TODO: This is not working
+    // const webhookApiAuthorizer = new RequestAuthorizer(
+    //   this,
+    //   "WebhookApiAuthorizer",
+    //   {
+    //     handler: webhookApiAuthorizerFunction,
+    //     identitySources: [IdentitySource.header("Authorization")],
+    //     resultsCacheTtl: Duration.minutes(60),
+    //   }
+    // );
 
     const webhookApi = new RestApi(this, "WebhookApi", {
-      defaultMethodOptions: {
-        authorizer: webhookApiAuthorizer,
-        authorizationType: AuthorizationType.CUSTOM,
-      },
-      defaultIntegration: new AwsIntegration({
-        action: "SendMessage",
-        actionParameters: {
-          MessageBody: "hello world",
-          // TODO: This is not working https://github.com/aws/aws-cdk/issues/7010
-          QueueUrl: webhookQueue.queueUrl,
-        },
+      // defaultMethodOptions: {
+      //   authorizer: webhookApiAuthorizer,
+      //   authorizationType: AuthorizationType.CUSTOM,
+      // },
+    });
+
+    webhookApi.root.addMethod(
+      "POST",
+      new AwsIntegration({
         integrationHttpMethod: "POST",
         options: {
           credentialsRole: new Role(this, "WebhookApiRole", {
@@ -122,15 +148,50 @@ export class EdaWebhook extends Stack {
               }),
             },
           }),
-          // TODO: respond 200 [accepted] https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.aws_apigateway-readme.html#gateway-response
+          integrationResponses: [
+            {
+              statusCode: "200",
+              responseTemplates: {
+                "application/json": '"[accepted]"',
+              },
+            },
+          ],
           passthroughBehavior: PassthroughBehavior.NEVER,
+          requestParameters: {
+            "integration.request.header.Content-Type": `'application/x-www-form-urlencoded'`,
+          },
+          requestTemplates: {
+            "application/json":
+              "Action=SendMessage&MessageBody=$util.urlEncode($input.body)",
+          },
         },
+        path: `${this.account}/${webhookQueue.queueName}`,
         region: "eu-central-1",
         service: "sqs",
       }),
-    });
-
-    webhookApi.root.addMethod("POST");
+      {
+        methodResponses: [
+          {
+            statusCode: "200",
+            responseModels: {
+              "application/json": Model.EMPTY_MODEL,
+            },
+          },
+          {
+            statusCode: "400",
+            responseModels: {
+              "application/json": Model.ERROR_MODEL,
+            },
+          },
+          {
+            statusCode: "500",
+            responseModels: {
+              "application/json": Model.ERROR_MODEL,
+            },
+          },
+        ],
+      }
+    );
   }
 }
 

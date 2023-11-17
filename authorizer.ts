@@ -1,6 +1,11 @@
-import { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda";
+import {
+  APIGatewayRequestAuthorizerEventV2,
+  APIGatewaySimpleAuthorizerResult,
+} from "aws-lambda";
 
-export const handler = async (event: APIGatewayRequestAuthorizerEventV2) => {
+export const handler = async (
+  event: APIGatewayRequestAuthorizerEventV2
+): Promise<APIGatewaySimpleAuthorizerResult> => {
   console.log(event);
 
   return {
