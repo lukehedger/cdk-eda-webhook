@@ -30,33 +30,45 @@ import {
   StateMachine,
   StateMachineType,
 } from "aws-cdk-lib/aws-stepfunctions";
+import {
+  DynamoAttributeValue,
+  DynamoPutItem,
+} from "aws-cdk-lib/aws-stepfunctions-tasks";
 
 export class EdaWebhook extends Stack {
   constructor(scope: App, id: string, props?: StackProps) {
     super(scope, id, props);
 
-    // new Table(this, "EventLogTable", {
-    //   billingMode: BillingMode.PAY_PER_REQUEST,
-    //   contributorInsightsEnabled: true,
-    //   deletionProtection: true,
-    //   partitionKey: {
-    //     name: "id",
-    //     type: AttributeType.STRING,
-    //   },
-    //   removalPolicy: RemovalPolicy.RETAIN,
-    //   sortKey: {
-    //     name: "sortKey",
-    //     type: AttributeType.STRING,
-    //   },
-    //   tableName: "EventLog",
-    //   timeToLiveAttribute: "ttl",
-    // });
+    const eventLogTable = new Table(this, "EventLogTable", {
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      contributorInsightsEnabled: true,
+      deletionProtection: true,
+      partitionKey: {
+        name: "payment_id",
+        type: AttributeType.STRING,
+      },
+      removalPolicy: RemovalPolicy.RETAIN,
+      sortKey: {
+        name: "version",
+        type: AttributeType.NUMBER,
+      },
+      tableName: "EventLog",
+      // timeToLiveAttribute: "ttl",
+    });
 
     const eventLogStateMachine = new StateMachine(
       this,
       "EventLogStateMachine",
       {
-        definitionBody: DefinitionBody.fromChainable(new Pass(this, "Pass")),
+        definitionBody: DefinitionBody.fromChainable(
+          new DynamoPutItem(this, "PutItemInEventLog", {
+            item: {
+              payment_id: DynamoAttributeValue.fromString("sample"),
+              version: DynamoAttributeValue.fromNumber(1),
+            },
+            table: eventLogTable,
+          })
+        ),
         logs: {
           destination: new LogGroup(this, "EventLogStateMachineLogs", {
             logGroupName: "/aws/vendedlogs/states/event-log-statemachine-luke",
